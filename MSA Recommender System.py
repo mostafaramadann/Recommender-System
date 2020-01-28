@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[10]:
+# In[37]:
 
 
 from pyspark.sql import SparkSession
@@ -20,7 +20,7 @@ from pyspark.ml.clustering import KMeans
 from pyspark.ml.recommendation import ALS
 
 
-# In[11]:
+# In[38]:
 
 
 class DataFrameFilter(object):
@@ -42,7 +42,7 @@ class DataFrameFilter(object):
         return output.dataframe
 
 
-# In[12]:
+# In[39]:
 
 
 ###################Class Insights######################################
@@ -72,7 +72,7 @@ class Insights(object):
 #        print("UnderConstruction")
 
 
-# In[13]:
+# In[40]:
 
 
 ########################class DataFrame####################################
@@ -87,14 +87,13 @@ class DataFrame(object):
             self.dataframe=dataframe
             self.name=name
             self.spark=spark
-            self.insights=Insights(self.name,self.spark)
-            #self.clusterer=Clusterer(self)
+            #self.insights=Insights(self.name,self.spark)
             self.updateView()
         else:
             self.dataframe=None
             self.name=None
             self.spark=None
-            self.insights=None
+            #self.insights=None
             self.clusterer=None
         
     def openFile(self,path='C:',Type='csv',name='',dropna=False,spark=None):
@@ -108,7 +107,7 @@ class DataFrame(object):
             if dropna:
                 self.dropNulls()
             self.updateView()
-            self.insights=Insights(self.name,self.spark)
+            #self.insights=Insights(self.name,self.spark)
             self.normalize_grades()
            # self.clusterer=Clusterer(self)
             self.updateView()
@@ -180,7 +179,7 @@ class DataFrame(object):
         self.dataframe.limit(limit).show()
 
 
-# In[22]:
+# In[41]:
 
 
 class GradePredict(object):
@@ -196,26 +195,23 @@ class GradePredict(object):
             records = spark.createDataFrame(records)
             #records.show()
             if prediction =='RF':
-                predc = self.RandomForestPredict(records)
+                predc = self.RandomForestPredict(records,spark)
             elif prediction =='ALS':
-                predc = self.ALSPredict(records)
+                predc = self.ALSPredict(records,spark)
         if predc!=None:
             return predc
         else:
             return None
-    def ALSPredict(self,df):
+    def ALSPredict(self,df,spark):
         """ must get the Grade columns in integer Representation
         this function takes a data frame that contains the sid,cid and predicts the Grade""" 
         predc = PredictionModels.ALSmodel.transform(df)
-        predc.show()
         predc = predc.withColumnRenamed('prediction','Grade')
-        predc = DataFrame(dataframe=predc,name='predictions',spark=spark)
+        predc = DataFrame(dataframe=predc,name='predictions',spark=spark)#####Reduce time by not creating this obj
         predc.grade_From_Double_To_Int()
-        predc.show()
         predc.grades_From_int_to_String()
-        predc.show()
         predc.renameColumn('Grade','Predicted Grade')
-        predc.show()
+        #predc.show()
         predc = predc.dataframe
         count = predc.count()
         predc = predc.collect()
@@ -223,7 +219,7 @@ class GradePredict(object):
         for i in range(0,count):
             predcRows.append(GradePredict.Row_Tuple(predc[i]))
         return predcRows
-    def RandomForestPredict(self,df):
+    def RandomForestPredict(self,df,spark):
         
         """ must get the Grade columns in integer Representation
         this function takes a data frame that contains the sid,cid,GPA and predicts the Grade"""
@@ -232,10 +228,10 @@ class GradePredict(object):
         output = assembler.transform(df)
         predc = PredictionModels.RFmodel.transform(output)
         predc = predc.withColumnRenamed('prediction','Grade')
-        predc = DataFrame(dataframe=predc,name='predictions',spark=self.spark)
+        predc = DataFrame(dataframe=predc,name='predictions',spark=spark)#####Reduce time by not creating this obj
         predc.grades_From_int_to_String()
         predc.renameColumn('Grade','Predicted Grade')
-        predc.show()
+        #predc.show()
         predc=predc.dataframe
         count = predc.count()
         predc = predc.collect()
@@ -250,30 +246,45 @@ class GradePredict(object):
         for item in row:
             tupl.append(item)
         return tuple(tupl)
+    @staticmethod
+    def Cluster(df):
+        output=DataFrameFilter.Filter(df)
+        ouput = output         .groupby('sid')         .agg(f.collect_set('cid').alias('courses'))         .withColumn('n_courses', f.size('courses'))         .filter('n_courses > 15')         .select('sid', f.explode('courses').alias('cid'))
+        output = output         .withColumn('one', f.lit(1))         .toPandas()         .pivot_table(index='cid', columns=['sid'], values='one', fill_value=0)
+        output = df.spark.createDataFrame(output.reset_index())
+        assembler = VectorAssembler(inputCols=output.drop('cid').columns, outputCol="features")
+        clustering_df = assembler.transform(output).select('cid', 'features')
+        clustered = PredictionModels.Kmodel.transform(clustering_df).select("cid","prediction")
+        df.dataframe= df.dataframe.join(clustered,df.dataframe['cid'] == clustered['cid'], how='inner')
+        df.show()
+        return df
     
 
 
-# In[15]:
+# In[42]:
 
 
 class PredictionModels(object):   
     @staticmethod
-    def Train(df,modelName='ALS'):
+    def Train(df,modelName='ALS',faculties=9):
+        ###########cluster##############################
+        PredictionModels.TrainKmodel(df,faculties)
+        GradePredict.Cluster(df)
         if modelName == 'RF' or modelName == 'ALL':
             PredictionModels.spark=df.spark
             output=DataFrameFilter.Filter(df)
             assembler=VectorAssembler(inputCols=['cid','GPA'],outputCol='features')
             output=assembler.transform(output)
-            traind,testd = output.randomSplit([0.7,0.3])
+            traind,testd = output.randomSplit([0.8,0.2])
             maxx=-99999999
             trees = 0
             for i in range(50,51):#############To Be Changed Before Deployment###################
                 rfc=RandomForestClassifier(labelCol='Grade',featuresCol='features',numTrees=i)
                 PredictionModels.RFmodel = rfc.fit(traind)
                 PredictionModels.RFpreds = PredictionModels.RFmodel.transform(testd)
-                PredictionModels.RFpreds.show()
+               # PredictionModels.RFpreds.show()
                 PredictionModels.accuracy = PredictionModels.Accuracy(modelName)
-                if PredicitionModels.accuracy > maxx:
+                if PredictionModels.accuracy > maxx:
                     maxx = PredictionModels.accuracy
                     trees=i
             #print("Number of Trees that Increase Accuracy of classification is {0}".format(trees))
@@ -290,8 +301,19 @@ class PredictionModels(object):
               seed=12)
             PredictionModels.ALSmodel = als.fit(traind)
             PredictionModels.ALSpreds = PredictionModels.ALSmodel.transform(testd)
-            PredictionModels.ALSpreds.show()
+            #PredictionModels.ALSpreds.show()
             PredictionModels.Accuracy(PredictionModels.ALSpreds)
+    @staticmethod
+    def TrainKmodel(df,faculties):          
+        output=DataFrameFilter.Filter(df)
+        ouput = output         .groupby('sid')         .agg(f.collect_set('cid').alias('courses'))         .withColumn('n_courses', f.size('courses'))         .filter('n_courses > 15')         .select('sid', f.explode('courses').alias('cid'))
+        output = output         .withColumn('one', f.lit(1))         .toPandas()         .pivot_table(index='cid', columns=['sid'], values='one', fill_value=0)
+        output = df.spark.createDataFrame(output.reset_index())
+        assembler = VectorAssembler(inputCols=output.drop('cid').columns, outputCol="features")
+        clustering_df = assembler.transform(output).select('cid', 'features')
+        clustering_df.show()
+        kmeans = KMeans(featuresCol='features').setK(faculties).setSeed(1)
+        PredictionModels.Kmodel = kmeans.fit(clustering_df)
     @staticmethod
     def Accuracy(modelName='ALS'):
         if modelName =='RF' or modelName=='ALL':
@@ -305,7 +327,7 @@ class PredictionModels(object):
         
 
 
-# In[16]:
+# In[43]:
 
 
 spark = SparkSession.builder.appName('MSA Recommender System').getOrCreate() 
@@ -314,7 +336,7 @@ df.openFile(path="C:\\Users\\Mostafa\\Desktop\\data.csv",Type='csv',name='studen
 #df.show()
 
 
-# In[17]:
+# In[44]:
 
 
 df.renameColumn(df.dataframe.columns[0],'sid')
@@ -323,20 +345,44 @@ df.grade_From_String_to_int()
 #df.show(5)
 
 
-# In[18]:
+# In[45]:
 
 
-PredictionModels.Train(df,modelName='ALS')
+PredictionModels.Train(df,modelName='ALL')
 
 
-# In[23]:
+# In[46]:
 
 
 gp = GradePredict()
-courses=[135,243]
+courses=[16,135,243]
 sid=463
 gpa=2.6
-gp.Predict(courses=courses,sid=sid,GPA=gpa,spark=spark)
+preds=gp.Predict(courses=courses,sid=sid,GPA=gpa,spark=spark)
+preds2=list()
+if len(preds)<len(courses):
+    cmps=list()
+    for pred in preds:
+        sid,cid,gpa,grade=pred
+        cmps.append(cid)
+    for course in courses:
+        if course not in cmps:
+            preds2.append(course)
+preds.extend(gp.Predict(courses=preds2,sid=sid,GPA=gpa,spark=spark,prediction='RF'))
+print(str(preds))
+####return preds
+
+
+# In[47]:
+
+
+#PredictionModels.TrainKmodel(df,9)
+
+
+# In[48]:
+
+
+#PredictionModels.Cluster(df)
 
 
 # 
