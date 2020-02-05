@@ -20,9 +20,6 @@ def loadRFModel(df):
     return ret.head(7)
 
 grades=['A','A-','B+','B','B-','C+','C','C-','D+','D','D-','F']
-spark = SparkSession.builder.appName('MSA Recommender System').getOrCreate() 
-df=spark.read.csv('data.csv',header=True,inferSchema=True)
-i=0
 def predict(id):
     gpa=0.0
     courses=list()
