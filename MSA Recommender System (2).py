@@ -479,13 +479,6 @@ for i in range(0,count):
         }
         print(str(student['student'])+"\n")
         results=db.child('student').child(sid).push(student['student'])
-        #for kk in scourses:
-        #    results = db.child('student').child(sid).child('courses').child(kk['id']).push(kk)
-        #    resulst = db.child('student').child(sid).child('courses').child(kk['id']).child('Grade').push(kk['grade'])
-        #    resulst = db.child('student').child(sid).child('courses').child(kk['id']).child('Expgrade').push("")
-        #for kk in exp:
-        #    results = db.child('student').child(sid).child('expcourses').child(kk['id']).push(kk)
-        #    results = db.child('student').child(sid).child('expcourses').child(kk['id']).child('Expgrade').push(kk['expGrade'])
         scourses=list()
         scourses2=list()
         sid=df[i][0]
