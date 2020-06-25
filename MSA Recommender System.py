@@ -62,14 +62,14 @@ class Insights(object):
     def showTopStudents(self,no_records=10):###########This function is to be implemented after clustering####
         self.spark.sql("select * from "+self.name+" order by GPA desc").limit(no_records).show()
         
- #   def showTopTakenCourses(self,faculty='',no_records=10):###########This function is to be implemented after clustering
- #       print("Under Construction")
+   def showTopTakenCourses(self,faculty='',no_records=10):###########This function is to be implemented after clustering
+        pass
     
- #   def showSemesterInsight(self,semester=0):###################
- #       print("UnderConstruction")
+    def showSemesterInsight(self,semester=0):###################
+        pass
         
-#    def Visualize(self,dataframe):#####################
-#        print("UnderConstruction")
+    def Visualize(self,dataframe):#####################
+        pass
 
 
 # In[40]:
